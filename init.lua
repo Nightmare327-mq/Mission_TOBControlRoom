@@ -5,8 +5,6 @@ local Ready = false
 local command = 0
 local my_name = mq.TLO.Me.CleanName()
 local zone_name = mq.TLO.Zone.ShortName()
-local tiltPhase = 0
-local holdTiltPhase = 0
 local CampY = 450
 local CampX = 110
 local CampZ = 1156
@@ -66,11 +64,11 @@ if math.abs(mq.TLO.Me.Y() - 397) > 60 or math.abs(mq.TLO.Me.X() - 109) > 60 then
 	WaitForNav()
 end
 
-print('Doing some setup. Running xpprep.')
+print('Doing some setup.')
 
 -- mq.cmd('/dgga /lua run xpprep')
 mq.delay(2000)
-mq.cmd('/cwtn mode 2')
+mq.cmd('/cwtn mode 2 nosave')
 mq.cmdf('/%s mode 0 nosave', my_class)
 mq.cmdf('/%s mode 7 nosave', my_class)
 mq.cmdf('/%s pause off', my_class)
@@ -110,7 +108,7 @@ while mq.TLO.SpawnCount('Usira xtarhater')() < 1 do
 end
 
 mq.delay(1000)
-mq.cmd('/cwtna burnalways on')
+mq.cmd('/cwtna burnalways on nosave')
 
 local event_zoned = function(line)
     -- zoned so quit
@@ -239,5 +237,4 @@ end
 
 mq.unevent('Zoned')
 mq.unevent('Failed')
--- mq.cmd('/dgga /lua run xpprep')
 print('...Ended')
