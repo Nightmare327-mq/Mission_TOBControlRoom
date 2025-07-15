@@ -555,7 +555,6 @@ mq.cmd('/dgga /makemevis')
 mq.cmdf('/%s checkprioritytarget off nosave', my_class)
 mq.cmdf('/%s resetcamp', my_class)
 
-
 logger.info('Starting the event in 10 seconds!')
 
 mq.delay(10000)
@@ -593,6 +592,7 @@ local event_zoned = function(line)
     -- zoned so quit
     command = 1
 end
+
 local event_failed = function(line)
     -- failed so quit
     command = 1
