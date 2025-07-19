@@ -1,5 +1,5 @@
 -- Mission_TOBControlRoom
--- Version 1.0
+-- Version 1.1
 -- TODO: Overpull section to position named closer to where we actually want him
 -- TODO: implement tilt phase switch
 -- DONE: Close task window after getting the mission
@@ -12,6 +12,7 @@ local lip = require('lib.LIP')
 local logger = require('utils.logger')
 
 local DEBUG = false
+logger.set_log_level(4) -- 4 = Info level, use 5 for debug, and 6 for trace
 local command = 0
 local Ready = false
 local my_class = mq.TLO.Me.Class.ShortName()
@@ -35,6 +36,7 @@ local settings = {
     general = {
         GroupMessage = "dannet", -- or "bc"
 		BurnTiltPhase = true,
+        PreManaCheck = false,       -- true to pause until the check for everyone's mana, endurance, hp is full before proceeding, false if it stalls at that point
         OpenChest = false,
         Automation = "CWTN",        -- or "RGMercs" - not yet implemented
     }
@@ -65,6 +67,10 @@ local function load_settings()
             settings.general.BurnTiltPhase = true
             is_dirty = true
         end
+        if (settings.general.PreManaCheck == nil) then
+            settings.general.PreManaCheck = false
+            is_dirty = true
+        end
 		if (settings.general.OpenChest == nil) then
             settings.general.OpenChest = false
             is_dirty = true
@@ -84,7 +90,7 @@ local function MoveToSpawn(spawn, distance)
     if (spawn == nil or spawn.ID() == nil) then return end
     if (spawn.Distance() < distance) then return true end
 
-    mq.cmdf('/squelch /nav id %d npc |dist=%s', spawn.ID(), distance)
+    mq.cmdf('/squelch /nav id %d npc |dist=%s log=off', spawn.ID(), distance)
     mq.delay(10)
     while mq.TLO.Nav.Active() do mq.delay(10) end
     mq.delay(500)
@@ -146,9 +152,9 @@ local function all_double_invis()
         
         if result1 == 'TRUE' and result2 == 'TRUE' then
             both_result = true
-            --print(string.format("\ay%s \at%s \ag%s", name, "DBL Invis: ", both_result))
+            -- logger.debug("\ay%s \at%s \ag%s", name, "DBL Invis: ", both_result)
         else
-            --print('gm'..gm)
+            -- logger.debug('gm'..gm)
             break
         end
 
@@ -163,13 +169,15 @@ local function the_invis_thing()
     --if i am bard or group has bard, do the bard invis thing
     if mq.TLO.Spawn('Group Bard').ID()>0 then
         local bard = mq.TLO.Spawn('Group Bard').Name()
-            if bard == mq.TLO.Me.Name() then
-                    mq.cmd('/mutliline ; /stopsong; /timed 1 /alt act 3704; /timed 3 /alt act 231') 
-                else
-                    mq.cmdf('/dex %s /multiline ; /stopsong; /timed 1 /alt act 3704; /timed 3 /alt act 231', bard)
-            end
-            logger.info('\ag-->\atINVer: \ay',bard, '\at IVUer: \ay', bard,'\ag<--')
-        else
+        if bard == mq.TLO.Me.Name() then
+                -- I am a bard, cast 'Selos Sonata' then 'Shaun's Sonorous Clouding'
+                mq.cmd('/mutliline ; /stopsong; /timed 1 /alt act 3704; /timed 3 /alt act 231') 
+            else
+                -- Telling the bard to cast 'Selos Sonata' then 'Shaun's Sonorous Clouding'
+                mq.cmdf('/dex %s /multiline ; /stopsong; /timed 1 /alt act 3704; /timed 3 /alt act 231', bard)
+        end
+        logger.info('\ag-->\atINVer: \ay%s\at IVUer: \ay%s\ag<--', bard, bard)
+    else
     --without a bard, find who can invis and who can IVU
         local inver = 0
         local ivuer = 0
@@ -261,36 +269,45 @@ end
 local function DBLinvis()
     while not all_double_invis() do
         the_invis_thing()
-         mq.delay(5000)
+        mq.delay(5000)
     end
-        
 end
 
 local function WaitForNav()
-	-- if DEBUG then print('Starting WaitForNav()...') end
+    -- logger.debug('Starting WaitForNav()...')
 	while mq.TLO.Navigation.Active() == false do
 		mq.delay(10)
 	end
 	while mq.TLO.Navigation.Active() == true do
 		mq.delay(10)
 	end
-	-- if DEBUG then print('Exiting WaitForNav()...') end
+    -- logger.debug('Exiting WaitForNav()...')
 end
 
 local function checkGroupStats()
-	Ready = true
+    if (settings.general.PreManaCheck == false) then return end
+	Ready = false
 	local groupSize = mq.TLO.Group()
-   
-    for i = groupSize, 0, -1 do
-		if mq.TLO.Group.Member(i).PctHPs() < 99 then Ready = false end
-		if mq.TLO.Group.Member(i).PctEndurance() < 99 then Ready = false end
-		if mq.TLO.Group.Member(i).PctMana() ~= 0 and mq.TLO.Group.Member(i).PctMana() < 99 then Ready = false end
+    local firstMsg = true
+
+    while Ready ~= true do
+        Ready = true
+        for i = groupSize, 0, -1 do
+            if mq.TLO.Group.Member(i).PctHPs() < 99 then Ready = false end
+            if mq.TLO.Group.Member(i).PctEndurance() < 99 then Ready = false end
+            if mq.TLO.Group.Member(i).PctMana() ~= 0 and mq.TLO.Group.Member(i).PctMana() < 99 then Ready = false end
+        end
+
+       	if Ready == false then 
+            -- Only show the message the first time it runs through this routine
+            if firstMsg then 
+                logger.info('Group not fully ready.  Sitting to regen...')
+                firstMsg = false
+            end
+            mq.cmd('/noparse /dgga /if (${Me.Standing}) /sit')
+            mq.delay(5000)
+    	end
     end
-	if Ready == false then 
-		logger.info('Group not fully ready.  Sitting to regen...')
-		mq.cmd('/noparse /dgga /if (${Me.Standing}) /sit')
-		mq.delay(5000)
-	end
 end
 
 --- Gets the name of a group member, even if they are out of zone
@@ -327,33 +344,23 @@ local function waitForGroupToZone(timeoutSec)
     while os.difftime(os.time(), start) < timeoutSec do
         local notInZone = getGroupMembersNotInZone()
         if #notInZone == 0 then
-            print("✅ All group members are in zone.")
+            logger.info("✅ All group members are in zone.")
             return true
         end
-        print("⏳ Still waiting on: " .. table.concat(notInZone, ", "))
+        logger.info("⏳ Still waiting on: " .. table.concat(notInZone, ", "))
         mq.delay(5000)
     end
-    print("❌ Timeout waiting for group members to zone.")
+    logger.info("❌ Timeout waiting for group members to zone.")
     return false
 end
 
 
-local function StopAttack()
-	mq.cmd('/attack off') 
-	mq.cmd('/cwtna CheckPriorityTarget off nosave')
-	mq.cmdf('/%s CheckPriorityTarget off nosave', my_class )
-	mq.cmdf('/%s Mode manual nosave', my_class )
-	-- if DEBUG then print('StopAttack branch...') end
-	if mq.TLO.Target.CleanName() ~= my_name then mq.cmdf('/target %s', my_name) end
-end
-
 local function ZoneIn(npcName, zoneInPhrase, quest_zone)
     local GroupSize = mq.TLO.Group.Members()
 
-
     for g = 1, GroupSize, 1 do
         local Member = mq.TLO.Group.Member(g).Name()
-        logger.info('\ay-->',Member,'<--' ,'\apShould Be Zoning In Now')
+        logger.info('\ay-->%s<--\apShould Be Zoning In Now', Member)
         mq.cmdf('/dex %s /target %s', Member, npcName)
         mq.delay(2000) -- Add a random delay ?
         mq.cmdf('/dex %s /say %s', Member, zoneInPhrase)
@@ -420,7 +427,7 @@ local function Task()
     end
 
     -- Close task windows on all group members
-    mq.cmd('/dgga /squelch /timed 50 /windowstate TaskWnd close')
+    mq.cmd('/timed 50 /dgga /squelch /windowstate TaskWnd close')
 end
 
 local function WaitForTask()
@@ -477,6 +484,25 @@ local function waitForGroupToZone(timeoutSec)
     return false
 end
 
+local function StartingSetup()
+    mq.delay(2000)
+    mq.cmd('/cwtn mode chase nosave')
+    mq.cmdf('/%s mode manual nosave', my_class)
+    mq.cmdf('/%s mode sictank nosave', my_class)
+    mq.cmdf('/%s pause off', my_class)
+    mq.cmd('/dgga /makemevis')
+    mq.cmdf('/%s checkprioritytarget off nosave', my_class)
+    mq.cmdf('/%s resetcamp', my_class)
+end
+
+local function ClearStartingSetup()
+    mq.delay(2000)
+    mq.cmd('/cwtn mode chase nosave')
+    mq.cmdf('/%s mode sictank nosave', my_class)
+    mq.cmdf('/%s pause off', my_class)
+    mq.cmdf('/%s checkprioritytarget on nosave', my_class)
+end
+
 
 -- #endregion
 
@@ -522,45 +548,32 @@ if zone_name ~= quest_zone then
 end
 
 -- Close task windows on all group members
-mq.cmd('/timed 100 /dgga /windowstate TaskWnd close')
+mq.cmd('/timed 100 /dgga /squelch /windowstate TaskWnd close')
 
 -- Uninvis and unpause to go ahead and do some buffing
-mq.cmd('/dgga /boxr unpause')
+mq.cmd('/dgga /squelch /boxr unpause')
 mq.cmd('/dgga /makemevis')
 logger.info('Un-Invising and Un-Pausing for buffs to be done')
 mq.delay(10000)
 
 -- Check group mana / endurance / hp
-while Ready == false do 
-	checkGroupStats()
-	mq.cmd('/noparse /dgga /if (${Me.Standing}) /sit')
-	mq.delay(5000)
-end
+checkGroupStats()
 
 -- mq.cmd('/dgga /nav locyxz 336 90 1156.79')
 if math.abs(mq.TLO.Me.Y() - 397) > 60 or math.abs(mq.TLO.Me.X() - 109) > 60 then
-	mq.cmd('/dgga /nav locyxz 397 109 1156')
+	mq.cmd('/dgga /nav locyxz 397 109 1156 log=off')
 	WaitForNav()
 end
 
 logger.info('Doing some setup.')
-
--- mq.cmd('/dgga /lua run xpprep')
-mq.delay(2000)
-mq.cmd('/cwtn mode 2 nosave')
-mq.cmdf('/%s mode 0 nosave', my_class)
-mq.cmdf('/%s mode 7 nosave', my_class)
-mq.cmdf('/%s pause off', my_class)
-mq.cmd('/dgga /makemevis')
-mq.cmdf('/%s checkprioritytarget off nosave', my_class)
-mq.cmdf('/%s resetcamp', my_class)
+StartingSetup()
 
 logger.info('Starting the event in 10 seconds!')
 
 mq.delay(10000)
 
 -- Move to trigger mobs
-mq.cmd('/dgga /nav locyxz 565 235 1156')
+mq.cmd('/dgga /nav locyxz 565 235 1156 log=off')
 WaitForNav()
 
 mq.cmd('/squelch /tar soldier npc')
@@ -576,8 +589,8 @@ while mq.TLO.SpawnCount('a spire soldier')() > 0 do
 	end
 end
 
-mq.cmd('/squelch /nav spawn Usira')
-mq.cmd('/squelch /tar usira npc')
+mq.cmd('/squelch /nav spawn Usira | log=off')
+mq.cmd('/squelch /mqtarget npc Usira')
 mq.delay(300)
 mq.cmd('/attack on')
 
@@ -605,9 +618,9 @@ local function StopAttack()
 	mq.cmd('/attack off') 
 	mq.cmd('/cwtna CheckPriorityTarget off nosave')
 	mq.cmdf('/%s CheckPriorityTarget off nosave', mq.TLO.Me.Class.ShortName() )
-	mq.cmdf('/%s Mode manual nosave', mq.TLO.Me.Class.ShortName() )
-	-- if DEBUG then print('StopAttack branch...') end
-	if mq.TLO.Target.CleanName() ~= my_name then mq.cmdf('/target %s', my_name) end
+	mq.cmdf('/%s Mode manual nosave', my_class )
+    logger.debug('StopAttack branch...')
+	if mq.TLO.Target.CleanName() ~= my_name then mq.cmdf('/mqtarget %s', my_name) end
 end
 
 while true do
@@ -623,43 +636,45 @@ while true do
 	end		
 
 	if mq.TLO.SpawnCount('Usira')() > 0  and math.floor(mq.TLO.Spawn('Usira').PctHPs() or 0) >= 55 and math.floor(mq.TLO.Spawn('Usira').PctHPs() or 0) <= 70 then
-		if DEBUG then print('Usira Attack during Tilt Phase branch...') end
-		if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('Usira').CleanName() then mq.cmd('/squelch /target Usira npc') end
-		mq.cmdf('/%s Mode sictank nosave', mq.TLO.Me.Class.ShortName() )
+		logger.debug('Usira Attack during Tilt Phase branch...')
+		if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('Usira').CleanName() then mq.cmd('/squelch /mqtarget npc Usira') end
+		mq.cmdf('/%s mode sictank nosave', my_class )
 		mq.delay(100)
-		mq.cmd('/attack on')
+        mq.cmd('/squelch /face')
+		mq.cmd('/squelch /attack on')
 		-- Keep attacking for 5 seconds before checking again
 		mq.delay(5000)
 	elseif mq.TLO.SpawnCount('Usira')() > 0  and math.floor(mq.TLO.Spawn('Usira').PctHPs() or 0) <= 7 and mq.TLO.SpawnCount('gilded guardian')() == 0 then
-		if DEBUG then print('Usira Attack after all gilded guardians are dead branch...') end
-		if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('Usira').CleanName() then mq.cmd('/squelch /target Usira npc') end
-		mq.cmdf('/%s Mode sictank nosave', mq.TLO.Me.Class.ShortName() )
+		logger.debug('Usira Attack after all gilded guardians are dead branch...')
+		if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('Usira').CleanName() then mq.cmd('/squelch /mqtarget npc Usira') end
+		mq.cmdf('/%s mode sictank nosave', my_class )
 		mq.delay(100)
-		mq.cmd('/attack on')
+		mq.cmd('/squelch /face')
+		mq.cmd('/squelch /attack on')
 		-- Keep attacking for 5 seconds before checking again
 		mq.delay(5000)
 	else
 		if mq.TLO.SpawnCount('a gilded guardian')() + mq.TLO.SpawnCount('thrall')() +  mq.TLO.SpawnCount('manipulator')() > 0 then 
-			if DEBUG then print('In AddsUp section') end
+			logger.debug('In AddsUp section')
 			if mq.TLO.Target.CleanName() ~= my_name and mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('Usira').CleanName() then 
-				-- We are already targeting and attacking a target, so let's get it dead before switchign targets
+				-- We are already targeting and attacking a target, so let's get it dead before switching targets
 				mq.cmd('/squelch /face')
 				mq.cmd('/attack on')
 			elseif mq.TLO.SpawnCount('thrall radius 60')() > 0 then 
-				if DEBUG then print('Thrall Attack branch...') end
-				if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('thrall').CleanName() then mq.cmd('/squelch /target thrall npc') end
+				logger.debug('Thrall Attack branch...')
+				if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('thrall').CleanName() then mq.cmd('/squelch /mqtarget npc thrall') end
 				mq.delay(100)
 				mq.cmd('/squelch /face')
 				mq.cmd('/attack on')
 			elseif mq.TLO.SpawnCount('a gilded guardian radius 60')() > 0 then 
-				-- if DEBUG then print('Guardian Attack branch...') end
-				if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('gilded guardian').CleanName() then mq.cmd('/squelch /target gilded guardian npc') end
+				logger.debug('Guardian Attack branch...')
+				if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('gilded guardian').CleanName() then mq.cmd('/squelch /mqtarget npc gilded guardian') end
 				mq.delay(100)
 				mq.cmd('/squelch /face')
 				mq.cmd('/attack on')
 			elseif mq.TLO.SpawnCount('manipulator radius 60')() > 0 then 
-				if DEBUG then print('Manipulator Attack branch...') end
-				if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('manipulator').CleanName()  then mq.cmd('/squelch /target manipulator npc') end
+				logger.debug('Manipulator Attack branch...')
+				if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('manipulator').CleanName()  then mq.cmd('/squelch /mqtarget npc manipulator') end
 				mq.delay(100)
 				mq.cmd('/squelch /face')
 				mq.cmd('/attack on')
@@ -667,9 +682,9 @@ while true do
 				StopAttack()
 			end
 		else
-			if DEBUG then print('Usira Attack branch...') end
-			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('Usira').CleanName() then mq.cmd('/squelch /target Usira npc') end
-			mq.cmdf('/%s Mode sictank nosave', mq.TLO.Me.Class.ShortName() )
+			logger.debug('Usira Attack branch...')
+			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('Usira').CleanName() then mq.cmd('/squelch /mptarget npc Usira') end
+			mq.cmdf('/%s mode sictank nosave', my_class)
 			mq.delay(100)
 			mq.cmd('/squelch /face')
 			mq.cmd('/attack on')
@@ -712,4 +727,5 @@ end
 
 mq.unevent('Zoned')
 mq.unevent('Failed')
+ClearStartingSetup()
 logger.info('...Ended')

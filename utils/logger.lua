@@ -4,7 +4,7 @@ local mq = require('mq')
 local actions = {}
 
 -- TODO: Determine name automatically
-local app_name = 'TOB Control Room'
+local app_name = 'Mission_TOBControlRoom'
 local logLeader = '\ar[\ag'..app_name..'\ar]\aw '
 
 --- @type number
