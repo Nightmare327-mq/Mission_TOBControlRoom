@@ -1,10 +1,10 @@
 -- Mission_TOBControlRoom
 -- Version 1.1
 -- TODO: Overpull section to position named closer to where we actually want him
--- TODO: implement tilt phase switch
+-- TODO: implement tilt phase switch - still having issues with this implementation not working correctly, so this may not get done
 -- DONE: Close task window after getting the mission
 -- DONE: if named <= 5% and no gilded guardians are up, concentrate on killing the named
--- TODO: 
+-- TODO: Change the spark movement section to only move me if the spark is on the left half of the room, where it can actally be a problem
 -- TODO: 
 ---------------------------
 local mq = require('mq')
@@ -109,7 +109,7 @@ end
 
 local function MoveToAndTarget(spawn)
     if MoveTo(spawn, 15) == false then return false end
-    mq.cmdf('/squelch /target %s', spawn)
+    mq.cmdf('/squelch /mqtarget %s', spawn)
     mq.delay(250)
     return true
 end
@@ -274,14 +274,14 @@ local function DBLinvis()
 end
 
 local function WaitForNav()
-    -- logger.debug('Starting WaitForNav()...')
+    logger.debug('Starting WaitForNav()...')
 	while mq.TLO.Navigation.Active() == false do
 		mq.delay(10)
 	end
 	while mq.TLO.Navigation.Active() == true do
 		mq.delay(10)
 	end
-    -- logger.debug('Exiting WaitForNav()...')
+    logger.debug('Exiting WaitForNav()...')
 end
 
 local function checkGroupStats()
@@ -336,24 +336,6 @@ local function getGroupMembersNotInZone()
     return missing
 end
 
---- Wait until all group members are in zone, or timeout
----@param timeoutSec number
----@return boolean
-local function waitForGroupToZone(timeoutSec)
-    local start = os.time()
-    while os.difftime(os.time(), start) < timeoutSec do
-        local notInZone = getGroupMembersNotInZone()
-        if #notInZone == 0 then
-            logger.info("✅ All group members are in zone.")
-            return true
-        end
-        logger.info("⏳ Still waiting on: " .. table.concat(notInZone, ", "))
-        mq.delay(5000)
-    end
-    logger.info("❌ Timeout waiting for group members to zone.")
-    return false
-end
-
 
 local function ZoneIn(npcName, zoneInPhrase, quest_zone)
     local GroupSize = mq.TLO.Group.Members()
@@ -361,7 +343,7 @@ local function ZoneIn(npcName, zoneInPhrase, quest_zone)
     for g = 1, GroupSize, 1 do
         local Member = mq.TLO.Group.Member(g).Name()
         logger.info('\ay-->%s<--\apShould Be Zoning In Now', Member)
-        mq.cmdf('/dex %s /target %s', Member, npcName)
+        mq.cmdf('/dex %s /mqtarget %s', Member, npcName)
         mq.delay(2000) -- Add a random delay ?
         mq.cmdf('/dex %s /say %s', Member, zoneInPhrase)
     end
@@ -371,7 +353,7 @@ local function ZoneIn(npcName, zoneInPhrase, quest_zone)
         mq.delay(2000)
     end
     if mq.TLO.Target.CleanName() ~= npcName then
-        mq.cmdf('/target %s', npcName)
+        mq.cmdf('/mqtarget %s', npcName)
         mq.delay(5000)
         mq.cmdf('/say %s', zoneInPhrase)
     else
@@ -474,13 +456,13 @@ local function waitForGroupToZone(timeoutSec)
     while os.difftime(os.time(), start) < timeoutSec do
         local notInZone = getGroupMembersNotInZone()
         if #notInZone == 0 then
-            logger.info("✅ All group members are in zone.")
+            logger.info("All group members are in zone.")
             return true
         end
-        logger.info("⏳ Still waiting on: " .. table.concat(notInZone, ", "))
+        logger.info("Still waiting on: " .. table.concat(notInZone, ", "))
         mq.delay(5000)
     end
-    logger.info("❌ Timeout waiting for group members to zone.")
+    logger.info("Timeout waiting for group members to zone.")
     return false
 end
 
@@ -503,6 +485,14 @@ local function ClearStartingSetup()
     mq.cmdf('/%s checkprioritytarget on nosave', my_class)
 end
 
+
+local function action_openChest()
+    mq.cmd('/squelch /nav spawn _chest | log=off')
+    while mq.TLO.Nav.Active() do mq.delay(5) end
+    mq.cmd('/mqtarget _chest')
+    mq.delay(250)
+    mq.cmd('/open')
+end
 
 -- #endregion
 
@@ -528,8 +518,7 @@ end
 
 if zone_name == request_zone then 
 	if mq.TLO.Spawn(request_npc).Distance() > 40 then 
-		logger.info('You are in %s, but too far away from %s to start the mission!', request_zone, request_npc)
-        -- os.exit()
+        logger.info('You are in %s, but too far away from %s to start the mission!  We will attempt to double-invis and run to the mission npc', request_zone, request_npc)
         DBLinvis()
         MoveToAndSay(request_npc, request_phrase)
     end
@@ -728,4 +717,6 @@ end
 mq.unevent('Zoned')
 mq.unevent('Failed')
 ClearStartingSetup()
+if (settings.general.OpenChest == true) then action_openChest() end
+
 logger.info('...Ended')
