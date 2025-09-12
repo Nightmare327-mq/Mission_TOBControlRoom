@@ -686,15 +686,17 @@ while true do
 	if mq.TLO.SpawnCount('a neural spark')() > 0 then 
 		local sparkLocX = mq.TLO.Spawn('a neural spark').X()
 		local sparkLocY = mq.TLO.Spawn('a neural spark').Y()
-		if sparkLocY < 450 then 
-			CampY = 450
-			CampX = 110
-			CampZ = 1156
-		else 
-			CampY = 330
-			CampX = 70
-			CampZ = 1156
-		end
+        if sparkLocX > 0 then -- only move if the spark is on the left side of the room
+            if sparkLocY < 450 then 
+                CampY = 450
+                CampX = 110
+                CampZ = 1156
+            else 
+                CampY = 330
+                CampX = 70
+                CampZ = 1156
+            end
+        end
 	else 
 		CampY = 450
 		CampX = 110
