@@ -469,6 +469,8 @@ end
 local function StartingSetup()
     mq.delay(2000)
     mq.cmd('/cwtn mode chase nosave')
+    mq.cmd('/cwtn pause off')
+    mq.cmd('/boxr unpause')
     mq.cmdf('/%s mode manual nosave', my_class)
     mq.cmdf('/%s mode sictank nosave', my_class)
     mq.cmdf('/%s pause off', my_class)
